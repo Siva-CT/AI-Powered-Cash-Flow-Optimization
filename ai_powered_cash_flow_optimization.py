@@ -58,36 +58,6 @@ def create_pdf(df, kpis):
     return buffer
 
 # ---------------------------
-# Column Mapping Helper
-# ---------------------------
-def map_columns(df):
-    mapping = {
-        "Industry": ["industry", "sector", "business"],
-        "Region": ["region", "location", "area"],
-        "Invoice_Amount": ["amount", "invoice", "value"],
-        "Invoice_Month": ["invoice_month", "month"],
-        "Due_Month": ["due_month", "due"],
-        "Days_Past_Due": ["days_past_due", "delay", "overdue"]
-    }
-    col_map = {}
-    for target, keywords in mapping.items():
-        found = None
-        for col in df.columns:
-            if any(k in col.lower() for k in keywords):
-                found = col
-                break
-        col_map[target] = found
-
-    st.sidebar.subheader("🔧 Column Mapping")
-    for target in mapping.keys():
-        col_map[target] = st.sidebar.selectbox(
-            f"Select column for {target}",
-            options=[None] + list(df.columns),
-            index=(df.columns.get_loc(col_map[target]) + 1 if col_map[target] else 0)
-        )
-    return col_map
-
-# ---------------------------
 # File upload / demo
 # ---------------------------
 st.title("💰 AI-Powered Cash Flow Optimization")
@@ -111,57 +81,37 @@ if uploaded_file or use_demo:
     st.subheader("📊 Data Preview")
     st.dataframe(df.head())
 
-    # Column mapping
-    col_map = map_columns(df)
-    if not all(col_map.values()):
-        st.error("❌ Please map all required columns in the sidebar.")
-        st.stop()
-
-    # Sidebar filters
-    st.sidebar.subheader("🔎 Filters")
-    industry_filter = st.sidebar.multiselect("Filter by Industry", df[col_map["Industry"]].unique())
-    region_filter = st.sidebar.multiselect("Filter by Region", df[col_map["Region"]].unique())
-    month_filter = st.sidebar.multiselect("Filter by Invoice Month", df[col_map["Invoice_Month"]].unique())
-
-    df_filtered = df.copy()
-    if industry_filter:
-        df_filtered = df_filtered[df_filtered[col_map["Industry"]].isin(industry_filter)]
-    if region_filter:
-        df_filtered = df_filtered[df_filtered[col_map["Region"]].isin(region_filter)]
-    if month_filter:
-        df_filtered = df_filtered[df_filtered[col_map["Invoice_Month"]].isin(month_filter)]
-
-    if df_filtered.empty:
-        st.warning("⚠️ No data matches the selected filters.")
-        st.stop()
-
+    # ---------------------------
     # Encode categoricals
+    # ---------------------------
     le_industry, le_region = LabelEncoder(), LabelEncoder()
-    df_encoded = df_filtered.copy()
-    df_encoded[col_map["Industry"]] = le_industry.fit_transform(df_encoded[col_map["Industry"]])
-    df_encoded[col_map["Region"]] = le_region.fit_transform(df_encoded[col_map["Region"]])
+    df_encoded = df.copy()
+    df_encoded["Industry"] = le_industry.fit_transform(df_encoded["Industry"])
+    df_encoded["Region"] = le_region.fit_transform(df_encoded["Region"])
 
-    # --- FIX: Force consistent feature names for the model ---
-    X = df_encoded[list(col_map.values())].copy()
-    X.columns = ["Industry", "Region", "Invoice_Amount", "Invoice_Month", "Due_Month", "Days_Past_Due"]
+    X = df_encoded[["Industry","Region","Invoice_Amount","Invoice_Month","Due_Month","Days_Past_Due"]]
 
+    # ---------------------------
     # Predictions
+    # ---------------------------
     predictions = model.predict(X)
     probabilities = model.predict_proba(X)[:, 1]
-    df_filtered["Predicted_Status"] = ["Late" if p == 1 else "On-Time" for p in predictions]
-    df_filtered["Confidence"] = (probabilities * 100).round(1).astype(str) + "%"
+    df["Predicted_Status"] = ["Late" if p == 1 else "On-Time" for p in predictions]
+    df["Confidence"] = (probabilities * 100).round(1).astype(str) + "%"
 
     def strategy(days):
         if days > 20: return "🚨 High Risk - Early Reminder"
         elif days > 5: return "⚠️ Medium Risk - Follow-Up"
         return "✅ Low Risk - Regular Cycle"
-    df_filtered["Collection_Strategy"] = df_filtered[col_map["Days_Past_Due"]].apply(strategy)
+    df["Collection_Strategy"] = df["Days_Past_Due"].apply(strategy)
 
+    # ---------------------------
     # KPIs
-    total = len(df_filtered)
-    late = (df_filtered["Predicted_Status"] == "Late").sum()
+    # ---------------------------
+    total = len(df)
+    late = (df["Predicted_Status"] == "Late").sum()
     late_pct = (late / total) * 100
-    avg_due = df_filtered[col_map["Days_Past_Due"]].mean()
+    avg_due = df["Days_Past_Due"].mean()
     kpis = {"total_invoices": total, "late_pct": late_pct, "avg_days_due": avg_due}
 
     col1, col2, col3 = st.columns(3)
@@ -169,63 +119,63 @@ if uploaded_file or use_demo:
     col2.metric("⏰ Late Payments %", f"{late_pct:.1f}%")
     col3.metric("📉 Avg Days Past Due", f"{avg_due:.1f}")
 
+    # ---------------------------
     # Tabs
+    # ---------------------------
     tab1, tab2 = st.tabs(["📊 Predictions", "📈 Visualizations"])
 
     with tab1:
         st.subheader("✅ Predictions")
-        st.dataframe(df_filtered[["Customer_ID", col_map["Industry"], col_map["Region"],
-                                  "Predicted_Status", "Confidence", "Collection_Strategy"]])
+        st.dataframe(df[["Customer_ID", "Industry", "Region",
+                         "Predicted_Status", "Confidence", "Collection_Strategy"]])
 
     with tab2:
         st.subheader("📈 Interactive Visualizations")
 
-        if not df_filtered.empty:
-            # Pie Chart
-            col_g1, col_i1 = st.columns([2, 1])
-            with col_g1:
-                fig1 = px.pie(df_filtered, names="Predicted_Status", hole=0.3, height=350)
-                st.plotly_chart(fig1, use_container_width=True)
-            with col_i1:
-                st.markdown(f"### 📊 Insights\n- {late_pct:.1f}% invoices predicted late")
+        # Pie Chart
+        col_g1, col_i1 = st.columns([2, 1])
+        with col_g1:
+            fig1 = px.pie(df, names="Predicted_Status", hole=0.3, height=350)
+            st.plotly_chart(fig1, use_container_width=True)
+        with col_i1:
+            st.markdown(f"### 📊 Insights\n- {late_pct:.1f}% invoices predicted late")
 
-            # Industry Breakdown
-            col_g2, col_i2 = st.columns([2, 1])
-            with col_g2:
-                fig2 = px.bar(df_filtered, x=col_map["Industry"], color="Predicted_Status", height=350)
-                st.plotly_chart(fig2, use_container_width=True)
-            with col_i2:
-                st.markdown("### 🏭 Insights\n- Risk varies across industries")
+        # Industry Breakdown
+        col_g2, col_i2 = st.columns([2, 1])
+        with col_g2:
+            fig2 = px.bar(df, x="Industry", color="Predicted_Status", height=350)
+            st.plotly_chart(fig2, use_container_width=True)
+        with col_i2:
+            st.markdown("### 🏭 Insights\n- Risk varies across industries")
 
-            # Trend Line
-            col_g3, col_i3 = st.columns([2, 1])
-            with col_g3:
-                fig3 = px.line(df_filtered, x=col_map["Invoice_Month"], y=col_map["Days_Past_Due"], markers=True, height=350)
-                st.plotly_chart(fig3, use_container_width=True)
-            with col_i3:
-                st.markdown(f"### 📅 Insights\n- Avg delay: {avg_due:.1f} days")
+        # Trend Line
+        col_g3, col_i3 = st.columns([2, 1])
+        with col_g3:
+            fig3 = px.line(df, x="Invoice_Month", y="Days_Past_Due", markers=True, height=350)
+            st.plotly_chart(fig3, use_container_width=True)
+        with col_i3:
+            st.markdown(f"### 📅 Insights\n- Avg delay: {avg_due:.1f} days")
 
-            # Boxplot
-            col_g4, col_i4 = st.columns([2, 1])
-            with col_g4:
-                fig4 = px.box(df_filtered, x="Predicted_Status", y=col_map["Invoice_Amount"], height=350)
-                st.plotly_chart(fig4, use_container_width=True)
-            with col_i4:
-                st.markdown("### 💵 Insights\n- Larger invoices often delayed")
+        # Boxplot
+        col_g4, col_i4 = st.columns([2, 1])
+        with col_g4:
+            fig4 = px.box(df, x="Predicted_Status", y="Invoice_Amount", height=350)
+            st.plotly_chart(fig4, use_container_width=True)
+        with col_i4:
+            st.markdown("### 💵 Insights\n- Larger invoices often delayed")
 
     # ---------------------------
     # 📥 Downloads
     # ---------------------------
-    csv = df_filtered.to_csv(index=False).encode("utf-8")
+    csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Download Predictions as CSV", csv, "predictions.csv", "text/csv")
 
-    pdf_buffer = create_pdf(df_filtered, kpis)
+    pdf_buffer = create_pdf(df, kpis)
     st.download_button("📑 Download Full Report as PDF", pdf_buffer, "cash_flow_report.pdf", "application/pdf")
 
     excel_buffer = io.BytesIO()
     with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-        df.to_excel(writer, sheet_name="Raw Data", index=False)
-        df_filtered.to_excel(writer, sheet_name="Predictions", index=False)
+        df.to_excel(writer, sheet_name="Predictions", index=False)
         pd.DataFrame([kpis]).to_excel(writer, sheet_name="KPIs", index=False)
 
     st.download_button(
@@ -234,12 +184,3 @@ if uploaded_file or use_demo:
         "cash_flow_report.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
-    # ---------------------------
-    # 🐞 Debug Panel (Sidebar)
-    # ---------------------------
-    st.sidebar.subheader("🐞 Debug Info")
-    if st.sidebar.checkbox("Show Debug Details"):
-        st.sidebar.write("📐 Data Shape:", df_filtered.shape)
-        st.sidebar.write("📑 Columns:", df_filtered.columns.tolist())
-        st.sidebar.write("🎯 Model Expected Features:", ["Industry", "Region", "Invoice_Amount", "Invoice_Month", "Due_Month", "Days_Past_Due"])
