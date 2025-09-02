@@ -10,6 +10,7 @@ Original file is located at
 import streamlit as st
 import pandas as pd
 import pickle
+from sklearn.preprocessing import LabelEncoder
 
 # ---------------------------
 # Load the trained model
@@ -33,17 +34,32 @@ if uploaded_file:
     # ---------------------------
     # Select Features for Prediction
     # ---------------------------
-    try:
-        X = df[["Industry","Region","Invoice_Amount","Invoice_Month","Due_Month","Days_Past_Due"]]
-    except:
+    required_cols = ["Industry", "Region", "Invoice_Amount", "Invoice_Month", "Due_Month", "Days_Past_Due"]
+
+    if not all(col in df.columns for col in required_cols):
         st.error("❌ Uploaded CSV must contain: Industry, Region, Invoice_Amount, Invoice_Month, Due_Month, Days_Past_Due")
         st.stop()
+
+    X = df[required_cols].copy()
+
+    # ---------------------------
+    # Encode categorical columns
+    # ---------------------------
+    label_encoders = {}
+    for col in ["Industry", "Region"]:
+        le = LabelEncoder()
+        X[col] = le.fit_transform(X[col].astype(str))  # Convert text to numeric
+        label_encoders[col] = le
 
     # ---------------------------
     # Make Predictions
     # ---------------------------
-    predictions = model.predict(X)
-    df["Predicted_Status"] = ["Late" if p==1 else "On-Time" for p in predictions]
+    try:
+        predictions = model.predict(X)
+        df["Predicted_Status"] = ["Late" if p == 1 else "On-Time" for p in predictions]
+    except Exception as e:
+        st.error(f"❌ Prediction failed: {e}")
+        st.stop()
 
     # ---------------------------
     # Add Collection Strategy
@@ -59,7 +75,10 @@ if uploaded_file:
     df["Collection_Strategy"] = df["Days_Past_Due"].apply(recommend_strategy)
 
     st.subheader("✅ Predictions with Strategies")
-    st.write(df[["Customer_ID","Predicted_Status","Collection_Strategy"]])
+    if "Customer_ID" in df.columns:
+        st.write(df[["Customer_ID", "Predicted_Status", "Collection_Strategy"]])
+    else:
+        st.write(df[["Predicted_Status", "Collection_Strategy"]])
 
     # ---------------------------
     # Download Results
@@ -71,18 +90,3 @@ if uploaded_file:
         file_name="predictions.csv",
         mime="text/csv"
     )
-
-# ---------------------------
-# Provide Sample Synthetic Data for Testing
-# ---------------------------
-st.subheader("📥 Download Sample Dataset")
-try:
-    sample_csv = pd.read_csv("synthetic_ar_data.csv").to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="⬇️ Download Sample Synthetic AR Dataset",
-        data=sample_csv,
-        file_name="synthetic_ar_data.csv",
-        mime="text/csv"
-    )
-except Exception:
-    st.warning("⚠️ Sample dataset not found in repo. Please upload your own CSV.")
