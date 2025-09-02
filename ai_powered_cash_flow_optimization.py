@@ -11,46 +11,65 @@ import streamlit as st
 import pandas as pd
 import pickle
 from sklearn.preprocessing import LabelEncoder
-import matplotlib.pyplot as plt
-import seaborn as sns
 import io
+import plotly.express as px
+import xlsxwriter
 
 # PDF generation
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
 
 # ---------------------------
-# Load the trained model
+# Load trained model
 # ---------------------------
 model = pickle.load(open("model.pkl", "rb"))
+st.set_page_config(page_title="AI Cash Flow Optimization", layout="wide", page_icon="💰")
 
-st.set_page_config(page_title="AI-Powered Cash Flow Optimization", layout="wide")
-st.title("💰 AI-Powered Cash Flow Optimization")
-st.write("Upload your AR dataset (CSV) or use demo data to get payment predictions with collection strategies.")
+# ---------------------------
+# Theme + Styling
+# ---------------------------
+theme_choice = st.sidebar.radio("🎨 Theme", ["🌞 Light", "🌙 Dark"])
+if theme_choice == "🌞 Light":
+    primaryColor, bgColor, textColor = "#4CAF50", "#F9FAFB", "#111827"
+else:
+    primaryColor, bgColor, textColor = "#10B981", "#0F172A", "#F1F5F9"
+
+st.markdown(
+    f"""
+    <style>
+    .stApp {{
+        background-color: {bgColor};
+        color: {textColor};
+    }}
+    .stButton>button, .stDownloadButton>button {{
+        background-color: {primaryColor};
+        color: white;
+        border-radius: 8px;
+        border: none;
+        padding: 0.6em 1em;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # ---------------------------
 # PDF Report Function
 # ---------------------------
-def create_pdf(df, figs, kpis):
-    """Generate PDF report with KPIs, predictions table, and charts."""
+def create_pdf(df, kpis):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
-    elements = []
-    styles = getSampleStyleSheet()
+    elements, styles = [], getSampleStyleSheet()
 
-    # Title
     elements.append(Paragraph("AI-Powered Cash Flow Optimization Report", styles['Title']))
     elements.append(Spacer(1, 20))
-
-    # KPIs
     elements.append(Paragraph(f"📦 Total Invoices: <b>{kpis['total_invoices']}</b>", styles['Normal']))
     elements.append(Paragraph(f"⏰ Late Payments %: <b>{kpis['late_pct']:.1f}%</b>", styles['Normal']))
     elements.append(Paragraph(f"📉 Avg Days Past Due: <b>{kpis['avg_days_due']:.1f}</b>", styles['Normal']))
     elements.append(Spacer(1, 20))
 
-    # Table (first 20 rows for readability)
     table_data = [df.columns.tolist()] + df.head(20).values.tolist()
     table = Table(table_data, repeatRows=1)
     table.setStyle(TableStyle([
@@ -59,28 +78,47 @@ def create_pdf(df, figs, kpis):
         ("ALIGN", (0,0), (-1,-1), "CENTER"),
         ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
         ("FONTSIZE", (0,0), (-1,-1), 8),
-        ("BOTTOMPADDING", (0,0), (-1,0), 6),
-        ("BACKGROUND", (0,1), (-1,-1), colors.beige),
         ("GRID", (0,0), (-1,-1), 0.5, colors.black),
     ]))
     elements.append(table)
-    elements.append(Spacer(1, 20))
-
-    # Charts
-    for fig in figs:
-        img_buffer = io.BytesIO()
-        fig.savefig(img_buffer, format="png")
-        img_buffer.seek(0)
-        elements.append(Image(img_buffer, width=400, height=250))
-        elements.append(Spacer(1, 20))
-
     doc.build(elements)
     buffer.seek(0)
     return buffer
 
 # ---------------------------
-# File uploader + demo data
+# Column Mapping
 # ---------------------------
+def map_columns(df):
+    mapping = {
+        "Industry": ["industry", "sector", "business"],
+        "Region": ["region", "location", "area"],
+        "Invoice_Amount": ["amount", "invoice", "value"],
+        "Invoice_Month": ["invoice_month", "month"],
+        "Due_Month": ["due_month", "due"],
+        "Days_Past_Due": ["days_past_due", "delay", "overdue"]
+    }
+    col_map = {}
+    for target, keywords in mapping.items():
+        found = None
+        for col in df.columns:
+            if any(k in col.lower() for k in keywords):
+                found = col
+                break
+        col_map[target] = found
+
+    st.sidebar.subheader("🔧 Column Mapping")
+    for target in mapping.keys():
+        col_map[target] = st.sidebar.selectbox(
+            f"Select column for {target}",
+            options=[None] + list(df.columns),
+            index=(df.columns.get_loc(col_map[target]) + 1 if col_map[target] else 0)
+        )
+    return col_map
+
+# ---------------------------
+# File upload / demo
+# ---------------------------
+st.title("💰 AI-Powered Cash Flow Optimization")
 uploaded_file = st.file_uploader("📂 Upload AR Data (CSV)", type=["csv"])
 use_demo = st.button("▶️ Use Demo Data")
 
@@ -88,7 +126,6 @@ if uploaded_file or use_demo:
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
     else:
-        # Demo dataset
         df = pd.DataFrame({
             "Customer_ID": [101, 102, 103, 104, 105, 106, 107],
             "Industry": ["Manufacturing", "Retail", "Finance", "Healthcare", "IT Services", "Retail", "Finance"],
@@ -102,119 +139,114 @@ if uploaded_file or use_demo:
     st.subheader("📊 Data Preview")
     st.dataframe(df.head())
 
-    # ---------------------------
-    # Validate columns
-    # ---------------------------
-    required_cols = ["Industry", "Region", "Invoice_Amount", "Invoice_Month", "Due_Month", "Days_Past_Due"]
-    if not all(col in df.columns for col in required_cols):
-        st.error(f"❌ CSV must contain: {', '.join(required_cols)}")
+    # Column mapping
+    col_map = map_columns(df)
+    if not all(col_map.values()):
+        st.error("❌ Please map all required columns in the sidebar.")
         st.stop()
 
-    # ---------------------------
-    # Encode categorical variables
-    # ---------------------------
+    # Sidebar filters
+    st.sidebar.subheader("🔎 Filters")
+    industry_filter = st.sidebar.multiselect("Filter by Industry", df[col_map["Industry"]].unique())
+    region_filter = st.sidebar.multiselect("Filter by Region", df[col_map["Region"]].unique())
+    month_filter = st.sidebar.multiselect("Filter by Invoice Month", df[col_map["Invoice_Month"]].unique())
+
+    df_filtered = df.copy()
+    if industry_filter:
+        df_filtered = df_filtered[df_filtered[col_map["Industry"]].isin(industry_filter)]
+    if region_filter:
+        df_filtered = df_filtered[df_filtered[col_map["Region"]].isin(region_filter)]
+    if month_filter:
+        df_filtered = df_filtered[df_filtered[col_map["Invoice_Month"]].isin(month_filter)]
+
+    if df_filtered.empty:
+        st.warning("⚠️ No data matches the selected filters.")
+        st.stop()
+
+    # Encode categoricals
     le_industry, le_region = LabelEncoder(), LabelEncoder()
-    df_encoded = df.copy()
-    df_encoded["Industry"] = le_industry.fit_transform(df_encoded["Industry"])
-    df_encoded["Region"] = le_region.fit_transform(df_encoded["Region"])
-    X = df_encoded[required_cols]
+    df_encoded = df_filtered.copy()
+    df_encoded[col_map["Industry"]] = le_industry.fit_transform(df_encoded[col_map["Industry"]])
+    df_encoded[col_map["Region"]] = le_region.fit_transform(df_encoded[col_map["Region"]])
 
-    # ---------------------------
-    # Predictions with confidence
-    # ---------------------------
+    X = df_encoded[list(col_map.values())]
+
+    # Predictions
     predictions = model.predict(X)
-    probabilities = model.predict_proba(X)[:, 1]  # Probability of "Late"
+    probabilities = model.predict_proba(X)[:, 1]
+    df_filtered["Predicted_Status"] = ["Late" if p == 1 else "On-Time" for p in predictions]
+    df_filtered["Confidence"] = (probabilities * 100).round(1).astype(str) + "%"
 
-    df["Predicted_Status"] = ["Late" if p == 1 else "On-Time" for p in predictions]
-    df["Confidence"] = (probabilities * 100).round(1).astype(str) + "%"
-
-    def recommend_strategy(days):
-        if days > 20: return "🚨 High Risk - Send Early Reminder"
-        elif days > 5: return "⚠️ Medium Risk - Standard Follow-Up"
+    def strategy(days):
+        if days > 20: return "🚨 High Risk - Early Reminder"
+        elif days > 5: return "⚠️ Medium Risk - Follow-Up"
         return "✅ Low Risk - Regular Cycle"
+    df_filtered["Collection_Strategy"] = df_filtered[col_map["Days_Past_Due"]].apply(strategy)
 
-    df["Collection_Strategy"] = df["Days_Past_Due"].apply(recommend_strategy)
-
-    # ---------------------------
     # KPIs
-    # ---------------------------
-    total_invoices = len(df)
-    late_invoices = (df["Predicted_Status"] == "Late").sum()
-    late_pct = (late_invoices / total_invoices) * 100
-    avg_days_due = df["Days_Past_Due"].mean()
-
-    kpis = {
-        "total_invoices": total_invoices,
-        "late_pct": late_pct,
-        "avg_days_due": avg_days_due
-    }
+    total = len(df_filtered)
+    late = (df_filtered["Predicted_Status"] == "Late").sum()
+    late_pct = (late / total) * 100
+    avg_due = df_filtered[col_map["Days_Past_Due"]].mean()
+    kpis = {"total_invoices": total, "late_pct": late_pct, "avg_days_due": avg_due}
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("📦 Total Invoices", total_invoices)
+    col1.metric("📦 Total Invoices", total)
     col2.metric("⏰ Late Payments %", f"{late_pct:.1f}%")
-    col3.metric("📉 Avg Days Past Due", f"{avg_days_due:.1f}")
+    col3.metric("📉 Avg Days Past Due", f"{avg_due:.1f}")
+
+    # Tabs
+    tab1, tab2 = st.tabs(["📊 Predictions", "📈 Visualizations"])
+
+    with tab1:
+        st.subheader("✅ Predictions")
+        st.dataframe(df_filtered[["Customer_ID", col_map["Industry"], col_map["Region"],
+                                  "Predicted_Status", "Confidence", "Collection_Strategy"]])
+
+    with tab2:
+        st.subheader("📈 Interactive Visualizations")
+
+        # Pie chart
+        fig1 = px.pie(df_filtered, names="Predicted_Status", title="On-Time vs Late",
+                      color="Predicted_Status", hole=0.3)
+        st.plotly_chart(fig1, use_container_width=True)
+
+        # Industry breakdown
+        fig2 = px.bar(df_filtered, x=col_map["Industry"], color="Predicted_Status",
+                      title="Predictions by Industry", barmode="group")
+        st.plotly_chart(fig2, use_container_width=True)
+
+        # Trend line
+        fig3 = px.line(df_filtered, x=col_map["Invoice_Month"], y=col_map["Days_Past_Due"],
+                       title="Avg Days Past Due by Invoice Month", markers=True)
+        st.plotly_chart(fig3, use_container_width=True)
+
+        # Boxplot
+        fig4 = px.box(df_filtered, x="Predicted_Status", y=col_map["Invoice_Amount"],
+                      title="Invoice Amount Distribution by Prediction")
+        st.plotly_chart(fig4, use_container_width=True)
 
     # ---------------------------
-    # Show Predictions
-    # ---------------------------
-    st.subheader("✅ Predictions with Confidence & Strategies")
-    st.dataframe(df[["Customer_ID","Industry","Region","Predicted_Status","Confidence","Collection_Strategy"]])
-
-    # ---------------------------
-    # Visualizations
-    # ---------------------------
-    figs = []
-
-    # Pie chart
-    status_counts = df["Predicted_Status"].value_counts()
-    fig1, ax1 = plt.subplots()
-    ax1.pie(status_counts, labels=status_counts.index, autopct='%1.1f%%', startangle=90)
-    ax1.axis("equal")
-    st.pyplot(fig1)
-    figs.append(fig1)
-
-    # Bar chart
-    industry_status = df.groupby(["Industry", "Predicted_Status"]).size().unstack(fill_value=0)
-    if not industry_status.empty:
-        fig2, ax2 = plt.subplots()
-        industry_status.plot(kind="bar", ax=ax2)
-        plt.ylabel("Number of Invoices")
-        plt.xlabel("Industry")
-        plt.xticks(rotation=45)
-        plt.legend(title="Predicted Status")
-        st.pyplot(fig2)
-        figs.append(fig2)
-
-    # Line chart
-    avg_due = df.groupby("Invoice_Month")["Days_Past_Due"].mean()
-    if not avg_due.empty:
-        fig3, ax3 = plt.subplots()
-        avg_due.plot(kind="line", marker="o", ax=ax3)
-        plt.ylabel("Avg Days Past Due")
-        plt.xlabel("Invoice Month")
-        st.pyplot(fig3)
-        figs.append(fig3)
-
-    # Boxplot
-    fig4, ax4 = plt.subplots()
-    sns.boxplot(data=df, x="Predicted_Status", y="Invoice_Amount", ax=ax4)
-    plt.ylabel("Invoice Amount")
-    plt.xlabel("Predicted Status")
-    st.pyplot(fig4)
-    figs.append(fig4)
-
-    # ---------------------------
-    # Downloads
+    # 📥 Downloads
     # ---------------------------
     # CSV
-    csv = df.to_csv(index=False).encode("utf-8")
+    csv = df_filtered.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Download Predictions as CSV", csv, "predictions.csv", "text/csv")
 
     # PDF
-    pdf_buffer = create_pdf(df, figs, kpis)
+    pdf_buffer = create_pdf(df_filtered, kpis)
+    st.download_button("📑 Download Full Report as PDF", pdf_buffer, "cash_flow_report.pdf", "application/pdf")
+
+    # Excel with multiple sheets
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+        df.to_excel(writer, sheet_name="Raw Data", index=False)
+        df_filtered.to_excel(writer, sheet_name="Predictions", index=False)
+        pd.DataFrame([kpis]).to_excel(writer, sheet_name="KPIs", index=False)
+
     st.download_button(
-        label="⬇️ Download Full Report as PDF",
-        data=pdf_buffer,
-        file_name="cash_flow_report.pdf",
-        mime="application/pdf"
+        "📊 Download Full Report as Excel",
+        excel_buffer.getvalue(),
+        "cash_flow_report.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
