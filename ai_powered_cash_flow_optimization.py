@@ -10,6 +10,7 @@ Original file is located at
 import streamlit as st
 import pandas as pd
 import pickle
+from sklearn.preprocessing import LabelEncoder
 
 # ---------------------------
 # Load the trained model
@@ -20,24 +21,20 @@ st.title("💰 AI-Powered Cash Flow Optimization")
 st.write("Upload your AR dataset (CSV) or use demo data to get payment predictions with collection strategies.")
 
 # ---------------------------
-# File uploader
+# File uploader + demo data
 # ---------------------------
 uploaded_file = st.file_uploader("📂 Upload AR Data (CSV)", type=["csv"])
-
-# ---------------------------
-# Demo dataset option
-# ---------------------------
 use_demo = st.button("▶️ Use Demo Data")
 
 if uploaded_file or use_demo:
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
     else:
-        # Demo dataset (small sample)
+        # Demo dataset
         df = pd.DataFrame({
             "Customer_ID": [101, 102, 103, 104, 105],
-            "Industry": ["Tech", "Retail", "Finance", "Healthcare", "Retail"],
-            "Region": ["North", "South", "East", "West", "North"],
+            "Industry": ["Manufacturing", "Retail", "Finance", "Healthcare", "IT Services"],
+            "Region": ["North America", "Europe", "Asia", "Middle East", "Europe"],
             "Invoice_Amount": [5000, 12000, 7000, 15000, 3000],
             "Invoice_Month": [1, 2, 3, 4, 5],
             "Due_Month": [2, 3, 4, 5, 6],
@@ -48,7 +45,7 @@ if uploaded_file or use_demo:
     st.write(df.head())
 
     # ---------------------------
-    # Check required columns
+    # Validate columns
     # ---------------------------
     required_cols = ["Industry", "Region", "Invoice_Amount", "Invoice_Month", "Due_Month", "Days_Past_Due"]
     if not all(col in df.columns for col in required_cols):
@@ -56,9 +53,20 @@ if uploaded_file or use_demo:
         st.stop()
 
     # ---------------------------
+    # Encode categorical variables (LabelEncoder like training)
+    # ---------------------------
+    le_industry = LabelEncoder()
+    le_region = LabelEncoder()
+
+    df_encoded = df.copy()
+    df_encoded["Industry"] = le_industry.fit_transform(df_encoded["Industry"])
+    df_encoded["Region"] = le_region.fit_transform(df_encoded["Region"])
+
+    X = df_encoded[required_cols]
+
+    # ---------------------------
     # Make predictions
     # ---------------------------
-    X = df[required_cols]
     predictions = model.predict(X)
     df["Predicted_Status"] = ["Late" if p == 1 else "On-Time" for p in predictions]
 
