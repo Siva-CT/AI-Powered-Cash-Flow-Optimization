@@ -28,34 +28,6 @@ model = pickle.load(open("model.pkl", "rb"))
 st.set_page_config(page_title="AI Cash Flow Optimization", layout="wide", page_icon="💰")
 
 # ---------------------------
-# Theme + Styling
-# ---------------------------
-theme_choice = st.sidebar.radio("🎨 Theme", ["🌞 Light", "🌙 Dark"])
-if theme_choice == "🌞 Light":
-    primaryColor, bgColor, textColor = "#4CAF50", "#F9FAFB", "#111827"
-else:
-    primaryColor, bgColor, textColor = "#10B981", "#0F172A", "#F1F5F9"
-
-st.markdown(
-    f"""
-    <style>
-    .stApp {{
-        background-color: {bgColor};
-        color: {textColor};
-    }}
-    .stButton>button, .stDownloadButton>button {{
-        background-color: {primaryColor};
-        color: white;
-        border-radius: 8px;
-        border: none;
-        padding: 0.6em 1em;
-    }}
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-# ---------------------------
 # PDF Report Function
 # ---------------------------
 def create_pdf(df, kpis):
@@ -86,7 +58,7 @@ def create_pdf(df, kpis):
     return buffer
 
 # ---------------------------
-# Column Mapping
+# Column Mapping Helper
 # ---------------------------
 def map_columns(df):
     mapping = {
@@ -169,7 +141,9 @@ if uploaded_file or use_demo:
     df_encoded[col_map["Industry"]] = le_industry.fit_transform(df_encoded[col_map["Industry"]])
     df_encoded[col_map["Region"]] = le_region.fit_transform(df_encoded[col_map["Region"]])
 
-    X = df_encoded[list(col_map.values())]
+    # --- FIX: Force consistent feature names for the model ---
+    X = df_encoded[list(col_map.values())].copy()
+    X.columns = ["Industry", "Region", "Invoice_Amount", "Invoice_Month", "Due_Month", "Days_Past_Due"]
 
     # Predictions
     predictions = model.predict(X)
@@ -206,59 +180,38 @@ if uploaded_file or use_demo:
     with tab2:
         st.subheader("📈 Interactive Visualizations")
 
-        # Pie chart + insights
-        col_g1, col_i1 = st.columns([2, 1])
-        with col_g1:
-            fig1 = px.pie(df_filtered, names="Predicted_Status", title="On-Time vs Late",
-                          color="Predicted_Status", hole=0.3, height=350)
-            st.plotly_chart(fig1, use_container_width=False)
-        with col_i1:
-            st.markdown(f"""
-            ### 📊 Insights
-            - **{late_pct:.1f}%** invoices predicted late  
-            - On-time invoices: {100 - late_pct:.1f}%  
-            - 🚨 Prioritize high-risk accounts
-            """)
+        if not df_filtered.empty:
+            # Pie Chart
+            col_g1, col_i1 = st.columns([2, 1])
+            with col_g1:
+                fig1 = px.pie(df_filtered, names="Predicted_Status", hole=0.3, height=350)
+                st.plotly_chart(fig1, use_container_width=True)
+            with col_i1:
+                st.markdown(f"### 📊 Insights\n- {late_pct:.1f}% invoices predicted late")
 
-        # Industry breakdown + insights
-        col_g2, col_i2 = st.columns([2, 1])
-        with col_g2:
-            fig2 = px.bar(df_filtered, x=col_map["Industry"], color="Predicted_Status",
-                          title="Predictions by Industry", barmode="group", height=350)
-            st.plotly_chart(fig2, use_container_width=False)
-        with col_i2:
-            top_industry = df_filtered[col_map["Industry"]].mode()[0]
-            st.markdown(f"""
-            ### 🏭 Insights
-            - Highest activity in: **{top_industry}**  
-            - Sector trends show where risk is concentrated
-            """)
+            # Industry Breakdown
+            col_g2, col_i2 = st.columns([2, 1])
+            with col_g2:
+                fig2 = px.bar(df_filtered, x=col_map["Industry"], color="Predicted_Status", height=350)
+                st.plotly_chart(fig2, use_container_width=True)
+            with col_i2:
+                st.markdown("### 🏭 Insights\n- Risk varies across industries")
 
-        # Trend line + insights
-        col_g3, col_i3 = st.columns([2, 1])
-        with col_g3:
-            fig3 = px.line(df_filtered, x=col_map["Invoice_Month"], y=col_map["Days_Past_Due"],
-                           title="Avg Days Past Due by Invoice Month", markers=True, height=350)
-            st.plotly_chart(fig3, use_container_width=False)
-        with col_i3:
-            st.markdown(f"""
-            ### 📅 Insights
-            - Average delay: **{avg_due:.1f} days**  
-            - Peaks may indicate **seasonal risks**
-            """)
+            # Trend Line
+            col_g3, col_i3 = st.columns([2, 1])
+            with col_g3:
+                fig3 = px.line(df_filtered, x=col_map["Invoice_Month"], y=col_map["Days_Past_Due"], markers=True, height=350)
+                st.plotly_chart(fig3, use_container_width=True)
+            with col_i3:
+                st.markdown(f"### 📅 Insights\n- Avg delay: {avg_due:.1f} days")
 
-        # Boxplot + insights
-        col_g4, col_i4 = st.columns([2, 1])
-        with col_g4:
-            fig4 = px.box(df_filtered, x="Predicted_Status", y=col_map["Invoice_Amount"],
-                          title="Invoice Amount Distribution by Prediction", height=350)
-            st.plotly_chart(fig4, use_container_width=False)
-        with col_i4:
-            st.markdown("""
-            ### 💵 Insights
-            - Late payments often cluster at **higher amounts**  
-            - Suggestion: extra checks for big invoices
-            """)
+            # Boxplot
+            col_g4, col_i4 = st.columns([2, 1])
+            with col_g4:
+                fig4 = px.box(df_filtered, x="Predicted_Status", y=col_map["Invoice_Amount"], height=350)
+                st.plotly_chart(fig4, use_container_width=True)
+            with col_i4:
+                st.markdown("### 💵 Insights\n- Larger invoices often delayed")
 
     # ---------------------------
     # 📥 Downloads
@@ -281,3 +234,12 @@ if uploaded_file or use_demo:
         "cash_flow_report.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+    # ---------------------------
+    # 🐞 Debug Panel (Sidebar)
+    # ---------------------------
+    st.sidebar.subheader("🐞 Debug Info")
+    if st.sidebar.checkbox("Show Debug Details"):
+        st.sidebar.write("📐 Data Shape:", df_filtered.shape)
+        st.sidebar.write("📑 Columns:", df_filtered.columns.tolist())
+        st.sidebar.write("🎯 Model Expected Features:", ["Industry", "Region", "Invoice_Amount", "Invoice_Month", "Due_Month", "Days_Past_Due"])
