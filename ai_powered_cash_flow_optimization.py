@@ -11,12 +11,15 @@ import streamlit as st
 import pandas as pd
 import pickle
 from sklearn.preprocessing import LabelEncoder
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # ---------------------------
 # Load the trained model
 # ---------------------------
 model = pickle.load(open("model.pkl", "rb"))
 
+st.set_page_config(page_title="AI-Powered Cash Flow Optimization", layout="wide")
 st.title("💰 AI-Powered Cash Flow Optimization")
 st.write("Upload your AR dataset (CSV) or use demo data to get payment predictions with collection strategies.")
 
@@ -32,17 +35,17 @@ if uploaded_file or use_demo:
     else:
         # Demo dataset
         df = pd.DataFrame({
-            "Customer_ID": [101, 102, 103, 104, 105],
-            "Industry": ["Manufacturing", "Retail", "Finance", "Healthcare", "IT Services"],
-            "Region": ["North America", "Europe", "Asia", "Middle East", "Europe"],
-            "Invoice_Amount": [5000, 12000, 7000, 15000, 3000],
-            "Invoice_Month": [1, 2, 3, 4, 5],
-            "Due_Month": [2, 3, 4, 5, 6],
-            "Days_Past_Due": [0, 15, 30, 5, 10]
+            "Customer_ID": [101, 102, 103, 104, 105, 106, 107],
+            "Industry": ["Manufacturing", "Retail", "Finance", "Healthcare", "IT Services", "Retail", "Finance"],
+            "Region": ["North America", "Europe", "Asia", "Middle East", "Europe", "North America", "Asia"],
+            "Invoice_Amount": [5000, 12000, 7000, 15000, 3000, 18000, 25000],
+            "Invoice_Month": [1, 2, 3, 4, 5, 6, 7],
+            "Due_Month": [2, 3, 4, 5, 6, 7, 8],
+            "Days_Past_Due": [0, 15, 30, 5, 10, 25, 40]
         })
 
     st.subheader("📊 Data Preview")
-    st.write(df.head())
+    st.dataframe(df.head())
 
     # ---------------------------
     # Validate columns
@@ -84,18 +87,111 @@ if uploaded_file or use_demo:
     df["Collection_Strategy"] = df["Days_Past_Due"].apply(recommend_strategy)
 
     # ---------------------------
+    # Sidebar Filters
+    # ---------------------------
+    st.sidebar.header("🔎 Filters")
+
+    if "reset" not in st.session_state:
+        st.session_state.reset = False
+
+    if st.sidebar.button("🔄 Reset Filters"):
+        st.session_state.reset = True
+    else:
+        st.session_state.reset = False
+
+    if st.session_state.reset:
+        industries = list(df["Industry"].unique())
+        regions = list(df["Region"].unique())
+    else:
+        industries = st.sidebar.multiselect("🏭 Industry", options=df["Industry"].unique(), default=list(df["Industry"].unique()))
+        regions = st.sidebar.multiselect("🌍 Region", options=df["Region"].unique(), default=list(df["Region"].unique()))
+
+    filtered_df = df[(df["Industry"].isin(industries)) & (df["Region"].isin(regions))]
+
+    # ---------------------------
+    # Show KPIs (Dynamic)
+    # ---------------------------
+    st.subheader("📌 Key Metrics (Filtered)")
+    if not filtered_df.empty:
+        total_invoices = len(filtered_df)
+        late_invoices = (filtered_df["Predicted_Status"] == "Late").sum()
+        late_pct = (late_invoices / total_invoices) * 100
+        avg_days_due = filtered_df["Days_Past_Due"].mean()
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("📦 Total Invoices", total_invoices)
+        col2.metric("⏰ Late Payments %", f"{late_pct:.1f}%")
+        col3.metric("📉 Avg Days Past Due", f"{avg_days_due:.1f}")
+    else:
+        st.warning("⚠️ No data available for selected filters.")
+        st.stop()
+
+    # ---------------------------
     # Show results
     # ---------------------------
-    st.subheader("✅ Predictions with Strategies")
-    st.write(df[["Customer_ID", "Predicted_Status", "Collection_Strategy"]])
+    st.subheader("✅ Predictions with Strategies (Filtered)")
+    st.dataframe(filtered_df[["Customer_ID", "Industry", "Region", "Predicted_Status", "Collection_Strategy"]])
+
+    # ---------------------------
+    # Visualization 1: Pie chart
+    # ---------------------------
+    st.subheader("📊 Payment Status Distribution")
+    status_counts = filtered_df["Predicted_Status"].value_counts()
+
+    fig1, ax1 = plt.subplots()
+    ax1.pie(status_counts, labels=status_counts.index, autopct='%1.1f%%', startangle=90)
+    ax1.axis("equal")
+    st.pyplot(fig1)
+
+    # ---------------------------
+    # Visualization 2: Grouped bar chart (Industry & Status)
+    # ---------------------------
+    st.subheader("🏭 Payments by Industry & Status")
+    industry_status = filtered_df.groupby(["Industry", "Predicted_Status"]).size().unstack(fill_value=0)
+
+    if not industry_status.empty:
+        fig2, ax2 = plt.subplots()
+        industry_status.plot(kind="bar", ax=ax2)
+        plt.ylabel("Number of Invoices")
+        plt.xlabel("Industry")
+        plt.xticks(rotation=45)
+        plt.legend(title="Predicted Status")
+        st.pyplot(fig2)
+    else:
+        st.info("⚠️ No industry data available for plotting.")
+
+    # ---------------------------
+    # Visualization 3: Line chart (Avg Days Past Due per Month)
+    # ---------------------------
+    st.subheader("📈 Avg. Days Past Due by Invoice Month")
+    avg_due = filtered_df.groupby("Invoice_Month")["Days_Past_Due"].mean()
+
+    if not avg_due.empty:
+        fig3, ax3 = plt.subplots()
+        avg_due.plot(kind="line", marker="o", ax=ax3)
+        plt.ylabel("Avg Days Past Due")
+        plt.xlabel("Invoice Month")
+        st.pyplot(fig3)
+    else:
+        st.warning("⚠️ No data available for selected filters.")
+
+    # ---------------------------
+    # Visualization 4: Boxplot (Invoice Amount vs Payment Status)
+    # ---------------------------
+    st.subheader("💵 Invoice Amount Distribution by Payment Status")
+    fig4, ax4 = plt.subplots()
+    sns.boxplot(data=filtered_df, x="Predicted_Status", y="Invoice_Amount", ax=ax4)
+    plt.ylabel("Invoice Amount")
+    plt.xlabel("Predicted Status")
+    st.pyplot(fig4)
 
     # ---------------------------
     # Download results
     # ---------------------------
-    csv = df.to_csv(index=False).encode("utf-8")
+    csv = filtered_df.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="⬇️ Download Predictions as CSV",
+        label="⬇️ Download Filtered Predictions as CSV",
         data=csv,
-        file_name="predictions.csv",
+        file_name="predictions_filtered.csv",
         mime="text/csv"
     )
