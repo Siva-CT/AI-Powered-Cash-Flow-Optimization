@@ -206,38 +206,69 @@ if uploaded_file or use_demo:
     with tab2:
         st.subheader("📈 Interactive Visualizations")
 
-        # Pie chart
-        fig1 = px.pie(df_filtered, names="Predicted_Status", title="On-Time vs Late",
-                      color="Predicted_Status", hole=0.3)
-        st.plotly_chart(fig1, use_container_width=True)
+        # Pie chart + insights
+        col_g1, col_i1 = st.columns([2, 1])
+        with col_g1:
+            fig1 = px.pie(df_filtered, names="Predicted_Status", title="On-Time vs Late",
+                          color="Predicted_Status", hole=0.3, height=350)
+            st.plotly_chart(fig1, use_container_width=False)
+        with col_i1:
+            st.markdown(f"""
+            ### 📊 Insights
+            - **{late_pct:.1f}%** invoices predicted late  
+            - On-time invoices: {100 - late_pct:.1f}%  
+            - 🚨 Prioritize high-risk accounts
+            """)
 
-        # Industry breakdown
-        fig2 = px.bar(df_filtered, x=col_map["Industry"], color="Predicted_Status",
-                      title="Predictions by Industry", barmode="group")
-        st.plotly_chart(fig2, use_container_width=True)
+        # Industry breakdown + insights
+        col_g2, col_i2 = st.columns([2, 1])
+        with col_g2:
+            fig2 = px.bar(df_filtered, x=col_map["Industry"], color="Predicted_Status",
+                          title="Predictions by Industry", barmode="group", height=350)
+            st.plotly_chart(fig2, use_container_width=False)
+        with col_i2:
+            top_industry = df_filtered[col_map["Industry"]].mode()[0]
+            st.markdown(f"""
+            ### 🏭 Insights
+            - Highest activity in: **{top_industry}**  
+            - Sector trends show where risk is concentrated
+            """)
 
-        # Trend line
-        fig3 = px.line(df_filtered, x=col_map["Invoice_Month"], y=col_map["Days_Past_Due"],
-                       title="Avg Days Past Due by Invoice Month", markers=True)
-        st.plotly_chart(fig3, use_container_width=True)
+        # Trend line + insights
+        col_g3, col_i3 = st.columns([2, 1])
+        with col_g3:
+            fig3 = px.line(df_filtered, x=col_map["Invoice_Month"], y=col_map["Days_Past_Due"],
+                           title="Avg Days Past Due by Invoice Month", markers=True, height=350)
+            st.plotly_chart(fig3, use_container_width=False)
+        with col_i3:
+            st.markdown(f"""
+            ### 📅 Insights
+            - Average delay: **{avg_due:.1f} days**  
+            - Peaks may indicate **seasonal risks**
+            """)
 
-        # Boxplot
-        fig4 = px.box(df_filtered, x="Predicted_Status", y=col_map["Invoice_Amount"],
-                      title="Invoice Amount Distribution by Prediction")
-        st.plotly_chart(fig4, use_container_width=True)
+        # Boxplot + insights
+        col_g4, col_i4 = st.columns([2, 1])
+        with col_g4:
+            fig4 = px.box(df_filtered, x="Predicted_Status", y=col_map["Invoice_Amount"],
+                          title="Invoice Amount Distribution by Prediction", height=350)
+            st.plotly_chart(fig4, use_container_width=False)
+        with col_i4:
+            st.markdown("""
+            ### 💵 Insights
+            - Late payments often cluster at **higher amounts**  
+            - Suggestion: extra checks for big invoices
+            """)
 
     # ---------------------------
     # 📥 Downloads
     # ---------------------------
-    # CSV
     csv = df_filtered.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Download Predictions as CSV", csv, "predictions.csv", "text/csv")
 
-    # PDF
     pdf_buffer = create_pdf(df_filtered, kpis)
     st.download_button("📑 Download Full Report as PDF", pdf_buffer, "cash_flow_report.pdf", "application/pdf")
 
-    # Excel with multiple sheets
     excel_buffer = io.BytesIO()
     with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
         df.to_excel(writer, sheet_name="Raw Data", index=False)
