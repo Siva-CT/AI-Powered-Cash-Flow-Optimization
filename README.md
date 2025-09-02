@@ -1,60 +1,52 @@
-AI-powered web app that predicts late vs. on-time payments from Accounts Receivable (AR) data and recommends dynamic collection strategies.
+This project uses AI/ML models to predict whether customer invoices will be paid on-time or late and suggests dynamic collection strategies to optimize cash flow.
 
-This project uses a Random Forest classifier trained on synthetic invoice data, with a Streamlit web interface for predictions and strategy recommendations.
+It is built with:
 
-🚀 Features
+🐼 Pandas for data handling
 
-📊 Upload AR data (CSV)
+🤖 Scikit-learn for model training
 
-🤖 Predict payment status (On-Time or Late)
+🌐 Streamlit for interactive deployment
 
-📌 Get recommended collection strategies:
+⚡ Features
 
-✅ Low Risk – Regular Cycle
+Upload Accounts Receivable (AR) CSV data
 
-⚠️ Medium Risk – Standard Follow-Up
+Predict On-Time vs Late payments
 
-🚨 High Risk – Send Early Reminder
+Recommend collection strategies (low, medium, high risk)
 
-⬇️ Download results as a CSV
+Download results as a CSV report
 
-🗂️ Project Structure
-AI-Powered-Cash-Flow-Optimization/
-│── app.py              # Streamlit app
-│── model.pkl           # Trained ML model
-│── requirements.txt    # Dependencies
-│── sample_data.csv     # Example AR dataset
-│── README.md           # Project documentation
+Built on a synthetic dataset for demonstration
 
 🛠️ Installation & Usage
-1️⃣ Clone the repository
-git clone https://github.com/YOUR-Siva-CT/AI-Powered-Cash-Flow-Optimization.git
+1. Clone this repository
+git clone https://github.com/Siva-CT/AI-Powered-Cash-Flow-Optimization.git
 cd AI-Powered-Cash-Flow-Optimization
 
-2️⃣ Install dependencies
+2. Install dependencies
 pip install -r requirements.txt
 
-3️⃣ Run the app
-streamlit run app.py
+3. Run Streamlit app
+streamlit run ai_powered_cash_flow_optimization.py
 
-📂 Example Input (sample_data.csv)
-Customer_ID,Invoice_Amount,Invoice_Month,Due_Month,Days_Past_Due
-CUST0001,5000,3,4,0
-CUST0002,12000,5,6,10
-CUST0003,7500,7,8,25
+📂 Repository Structure
+├── LICENSE
+├── README.md
+├── ai_powered_cash_flow_optimization.py   # Streamlit app
+├── model.pkl                              # Trained ML model
+├── requirements.txt                       # Dependencies
+├── synthetic_ar_data.csv                  # Synthetic dataset
 
-🌐 Deployment
+📊 Example Input (CSV)
+Customer_ID,Industry,Region,Invoice_Amount,Invoice_Month,Due_Month,Days_Past_Due
+CUST0001,IT Services,North America,5000,3,4,0
+CUST0002,Retail,Europe,12000,5,6,10
+CUST0003,Finance,Asia,7500,7,8,25
 
-This app can be deployed on:
+👨‍💻 Author
+https://github.com/Siva-CT
 
-Streamlit Cloud
-
-Hugging Face Spaces
-
-📌 Future Improvements
-
-Add industry/region features for better predictions
-
-Integrate with real AR datasets
-
-Add dashboard visualizations
+Sivaggami Sundaram CT
+🔗 GitHub Profile
