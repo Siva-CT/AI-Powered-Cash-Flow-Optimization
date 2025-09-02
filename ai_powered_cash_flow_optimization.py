@@ -13,6 +13,13 @@ import pickle
 from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
+import io
+
+# PDF generation
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
 
 # ---------------------------
 # Load the trained model
@@ -22,6 +29,54 @@ model = pickle.load(open("model.pkl", "rb"))
 st.set_page_config(page_title="AI-Powered Cash Flow Optimization", layout="wide")
 st.title("💰 AI-Powered Cash Flow Optimization")
 st.write("Upload your AR dataset (CSV) or use demo data to get payment predictions with collection strategies.")
+
+# ---------------------------
+# PDF Report Function
+# ---------------------------
+def create_pdf(df, figs, kpis):
+    """Generate PDF report with KPIs, predictions table, and charts."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elements = []
+    styles = getSampleStyleSheet()
+
+    # Title
+    elements.append(Paragraph("AI-Powered Cash Flow Optimization Report", styles['Title']))
+    elements.append(Spacer(1, 20))
+
+    # KPIs
+    elements.append(Paragraph(f"📦 Total Invoices: <b>{kpis['total_invoices']}</b>", styles['Normal']))
+    elements.append(Paragraph(f"⏰ Late Payments %: <b>{kpis['late_pct']:.1f}%</b>", styles['Normal']))
+    elements.append(Paragraph(f"📉 Avg Days Past Due: <b>{kpis['avg_days_due']:.1f}</b>", styles['Normal']))
+    elements.append(Spacer(1, 20))
+
+    # Table (first 20 rows for readability)
+    table_data = [df.columns.tolist()] + df.head(20).values.tolist()
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.grey),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.whitesmoke),
+        ("ALIGN", (0,0), (-1,-1), "CENTER"),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 8),
+        ("BOTTOMPADDING", (0,0), (-1,0), 6),
+        ("BACKGROUND", (0,1), (-1,-1), colors.beige),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.black),
+    ]))
+    elements.append(table)
+    elements.append(Spacer(1, 20))
+
+    # Charts
+    for fig in figs:
+        img_buffer = io.BytesIO()
+        fig.savefig(img_buffer, format="png")
+        img_buffer.seek(0)
+        elements.append(Image(img_buffer, width=400, height=250))
+        elements.append(Spacer(1, 20))
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
 
 # ---------------------------
 # File uploader + demo data
@@ -56,99 +111,70 @@ if uploaded_file or use_demo:
         st.stop()
 
     # ---------------------------
-    # Encode categorical variables (LabelEncoder like training)
+    # Encode categorical variables
     # ---------------------------
-    le_industry = LabelEncoder()
-    le_region = LabelEncoder()
-
+    le_industry, le_region = LabelEncoder(), LabelEncoder()
     df_encoded = df.copy()
     df_encoded["Industry"] = le_industry.fit_transform(df_encoded["Industry"])
     df_encoded["Region"] = le_region.fit_transform(df_encoded["Region"])
-
     X = df_encoded[required_cols]
 
     # ---------------------------
-    # Make predictions
+    # Predictions with confidence
     # ---------------------------
     predictions = model.predict(X)
-    df["Predicted_Status"] = ["Late" if p == 1 else "On-Time" for p in predictions]
+    probabilities = model.predict_proba(X)[:, 1]  # Probability of "Late"
 
-    # ---------------------------
-    # Add collection strategy
-    # ---------------------------
-    def recommend_strategy(days_past_due):
-        if days_past_due > 20:
-            return "🚨 High Risk - Send Early Reminder"
-        elif days_past_due > 5:
-            return "⚠️ Medium Risk - Standard Follow-Up"
-        else:
-            return "✅ Low Risk - Regular Cycle"
+    df["Predicted_Status"] = ["Late" if p == 1 else "On-Time" for p in predictions]
+    df["Confidence"] = (probabilities * 100).round(1).astype(str) + "%"
+
+    def recommend_strategy(days):
+        if days > 20: return "🚨 High Risk - Send Early Reminder"
+        elif days > 5: return "⚠️ Medium Risk - Standard Follow-Up"
+        return "✅ Low Risk - Regular Cycle"
 
     df["Collection_Strategy"] = df["Days_Past_Due"].apply(recommend_strategy)
 
     # ---------------------------
-    # Sidebar Filters
+    # KPIs
     # ---------------------------
-    st.sidebar.header("🔎 Filters")
+    total_invoices = len(df)
+    late_invoices = (df["Predicted_Status"] == "Late").sum()
+    late_pct = (late_invoices / total_invoices) * 100
+    avg_days_due = df["Days_Past_Due"].mean()
 
-    if "reset" not in st.session_state:
-        st.session_state.reset = False
+    kpis = {
+        "total_invoices": total_invoices,
+        "late_pct": late_pct,
+        "avg_days_due": avg_days_due
+    }
 
-    if st.sidebar.button("🔄 Reset Filters"):
-        st.session_state.reset = True
-    else:
-        st.session_state.reset = False
-
-    if st.session_state.reset:
-        industries = list(df["Industry"].unique())
-        regions = list(df["Region"].unique())
-    else:
-        industries = st.sidebar.multiselect("🏭 Industry", options=df["Industry"].unique(), default=list(df["Industry"].unique()))
-        regions = st.sidebar.multiselect("🌍 Region", options=df["Region"].unique(), default=list(df["Region"].unique()))
-
-    filtered_df = df[(df["Industry"].isin(industries)) & (df["Region"].isin(regions))]
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📦 Total Invoices", total_invoices)
+    col2.metric("⏰ Late Payments %", f"{late_pct:.1f}%")
+    col3.metric("📉 Avg Days Past Due", f"{avg_days_due:.1f}")
 
     # ---------------------------
-    # Show KPIs (Dynamic)
+    # Show Predictions
     # ---------------------------
-    st.subheader("📌 Key Metrics (Filtered)")
-    if not filtered_df.empty:
-        total_invoices = len(filtered_df)
-        late_invoices = (filtered_df["Predicted_Status"] == "Late").sum()
-        late_pct = (late_invoices / total_invoices) * 100
-        avg_days_due = filtered_df["Days_Past_Due"].mean()
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("📦 Total Invoices", total_invoices)
-        col2.metric("⏰ Late Payments %", f"{late_pct:.1f}%")
-        col3.metric("📉 Avg Days Past Due", f"{avg_days_due:.1f}")
-    else:
-        st.warning("⚠️ No data available for selected filters.")
-        st.stop()
+    st.subheader("✅ Predictions with Confidence & Strategies")
+    st.dataframe(df[["Customer_ID","Industry","Region","Predicted_Status","Confidence","Collection_Strategy"]])
 
     # ---------------------------
-    # Show results
+    # Visualizations
     # ---------------------------
-    st.subheader("✅ Predictions with Strategies (Filtered)")
-    st.dataframe(filtered_df[["Customer_ID", "Industry", "Region", "Predicted_Status", "Collection_Strategy"]])
+    figs = []
 
-    # ---------------------------
-    # Visualization 1: Pie chart
-    # ---------------------------
-    st.subheader("📊 Payment Status Distribution")
-    status_counts = filtered_df["Predicted_Status"].value_counts()
-
+    # Pie chart
+    status_counts = df["Predicted_Status"].value_counts()
     fig1, ax1 = plt.subplots()
     ax1.pie(status_counts, labels=status_counts.index, autopct='%1.1f%%', startangle=90)
     ax1.axis("equal")
     st.pyplot(fig1)
+    figs.append(fig1)
 
-    # ---------------------------
-    # Visualization 2: Grouped bar chart (Industry & Status)
-    # ---------------------------
-    st.subheader("🏭 Payments by Industry & Status")
-    industry_status = filtered_df.groupby(["Industry", "Predicted_Status"]).size().unstack(fill_value=0)
-
+    # Bar chart
+    industry_status = df.groupby(["Industry", "Predicted_Status"]).size().unstack(fill_value=0)
     if not industry_status.empty:
         fig2, ax2 = plt.subplots()
         industry_status.plot(kind="bar", ax=ax2)
@@ -157,41 +183,38 @@ if uploaded_file or use_demo:
         plt.xticks(rotation=45)
         plt.legend(title="Predicted Status")
         st.pyplot(fig2)
-    else:
-        st.info("⚠️ No industry data available for plotting.")
+        figs.append(fig2)
 
-    # ---------------------------
-    # Visualization 3: Line chart (Avg Days Past Due per Month)
-    # ---------------------------
-    st.subheader("📈 Avg. Days Past Due by Invoice Month")
-    avg_due = filtered_df.groupby("Invoice_Month")["Days_Past_Due"].mean()
-
+    # Line chart
+    avg_due = df.groupby("Invoice_Month")["Days_Past_Due"].mean()
     if not avg_due.empty:
         fig3, ax3 = plt.subplots()
         avg_due.plot(kind="line", marker="o", ax=ax3)
         plt.ylabel("Avg Days Past Due")
         plt.xlabel("Invoice Month")
         st.pyplot(fig3)
-    else:
-        st.warning("⚠️ No data available for selected filters.")
+        figs.append(fig3)
 
-    # ---------------------------
-    # Visualization 4: Boxplot (Invoice Amount vs Payment Status)
-    # ---------------------------
-    st.subheader("💵 Invoice Amount Distribution by Payment Status")
+    # Boxplot
     fig4, ax4 = plt.subplots()
-    sns.boxplot(data=filtered_df, x="Predicted_Status", y="Invoice_Amount", ax=ax4)
+    sns.boxplot(data=df, x="Predicted_Status", y="Invoice_Amount", ax=ax4)
     plt.ylabel("Invoice Amount")
     plt.xlabel("Predicted Status")
     st.pyplot(fig4)
+    figs.append(fig4)
 
     # ---------------------------
-    # Download results
+    # Downloads
     # ---------------------------
-    csv = filtered_df.to_csv(index=False).encode("utf-8")
+    # CSV
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Download Predictions as CSV", csv, "predictions.csv", "text/csv")
+
+    # PDF
+    pdf_buffer = create_pdf(df, figs, kpis)
     st.download_button(
-        label="⬇️ Download Filtered Predictions as CSV",
-        data=csv,
-        file_name="predictions_filtered.csv",
-        mime="text/csv"
+        label="⬇️ Download Full Report as PDF",
+        data=pdf_buffer,
+        file_name="cash_flow_report.pdf",
+        mime="application/pdf"
     )
