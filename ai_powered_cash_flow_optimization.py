@@ -10,7 +10,6 @@ Original file is located at
 import streamlit as st
 import pandas as pd
 import pickle
-import matplotlib.pyplot as plt
 
 # ---------------------------
 # Load the trained model
@@ -18,51 +17,53 @@ import matplotlib.pyplot as plt
 model = pickle.load(open("model.pkl", "rb"))
 
 st.title("💰 AI-Powered Cash Flow Optimization")
-st.write("Upload your AR dataset (CSV) or try **Demo Mode** with synthetic data.")
+st.write("Upload your AR dataset (CSV) or use demo data to get payment predictions with collection strategies.")
 
 # ---------------------------
-# Demo Mode Button
+# File uploader
 # ---------------------------
-use_demo = st.checkbox("▶️ Use Demo Mode (load sample data)")
+uploaded_file = st.file_uploader("📂 Upload AR Data (CSV)", type=["csv"])
 
-uploaded_file = None
-if not use_demo:
-    uploaded_file = st.file_uploader("📂 Upload AR Data (CSV)", type=["csv"])
+# ---------------------------
+# Demo dataset option
+# ---------------------------
+use_demo = st.button("▶️ Use Demo Data")
 
 if uploaded_file or use_demo:
-    # ---------------------------
-    # Load Data
-    # ---------------------------
-    if use_demo:
-        try:
-            df = pd.read_csv("synthetic_ar_data.csv")
-            st.success("✅ Loaded synthetic demo dataset.")
-        except:
-            st.error("⚠️ synthetic_ar_data.csv not found in repo. Please upload your own CSV.")
-            st.stop()
-    else:
+    if uploaded_file:
         df = pd.read_csv(uploaded_file)
+    else:
+        # Demo dataset (small sample)
+        df = pd.DataFrame({
+            "Customer_ID": [101, 102, 103, 104, 105],
+            "Industry": ["Tech", "Retail", "Finance", "Healthcare", "Retail"],
+            "Region": ["North", "South", "East", "West", "North"],
+            "Invoice_Amount": [5000, 12000, 7000, 15000, 3000],
+            "Invoice_Month": [1, 2, 3, 4, 5],
+            "Due_Month": [2, 3, 4, 5, 6],
+            "Days_Past_Due": [0, 15, 30, 5, 10]
+        })
 
     st.subheader("📊 Data Preview")
     st.write(df.head())
 
     # ---------------------------
-    # Select Features for Prediction
+    # Check required columns
     # ---------------------------
-    try:
-        X = df[["Industry","Region","Invoice_Amount","Invoice_Month","Due_Month","Days_Past_Due"]]
-    except:
-        st.error("❌ CSV must contain: Industry, Region, Invoice_Amount, Invoice_Month, Due_Month, Days_Past_Due")
+    required_cols = ["Industry", "Region", "Invoice_Amount", "Invoice_Month", "Due_Month", "Days_Past_Due"]
+    if not all(col in df.columns for col in required_cols):
+        st.error(f"❌ CSV must contain: {', '.join(required_cols)}")
         st.stop()
 
     # ---------------------------
-    # Make Predictions
+    # Make predictions
     # ---------------------------
+    X = df[required_cols]
     predictions = model.predict(X)
-    df["Predicted_Status"] = ["Late" if p==1 else "On-Time" for p in predictions]
+    df["Predicted_Status"] = ["Late" if p == 1 else "On-Time" for p in predictions]
 
     # ---------------------------
-    # Add Collection Strategy
+    # Add collection strategy
     # ---------------------------
     def recommend_strategy(days_past_due):
         if days_past_due > 20:
@@ -74,48 +75,14 @@ if uploaded_file or use_demo:
 
     df["Collection_Strategy"] = df["Days_Past_Due"].apply(recommend_strategy)
 
+    # ---------------------------
+    # Show results
+    # ---------------------------
     st.subheader("✅ Predictions with Strategies")
-    st.write(df[["Customer_ID","Predicted_Status","Collection_Strategy"]])
+    st.write(df[["Customer_ID", "Predicted_Status", "Collection_Strategy"]])
 
     # ---------------------------
-    # Insights / KPIs
-    # ---------------------------
-    st.subheader("📈 Insights & KPIs")
-
-    late_pct = (df["Predicted_Status"].value_counts().get("Late",0) / len(df)) * 100
-    avg_days_due = df["Days_Past_Due"].mean()
-
-    col1, col2 = st.columns(2)
-    col1.metric("📌 % Late Payments", f"{late_pct:.1f}%")
-    col2.metric("📌 Avg. Days Past Due", f"{avg_days_due:.1f}")
-
-    # ---------------------------
-    # Visualization: Pie Chart
-    # ---------------------------
-    st.subheader("📊 Payment Status Distribution")
-    status_counts = df["Predicted_Status"].value_counts()
-
-    fig1, ax1 = plt.subplots()
-    ax1.pie(status_counts, labels=status_counts.index, autopct='%1.1f%%', startangle=90)
-    ax1.axis("equal")
-    st.pyplot(fig1)
-
-    # ---------------------------
-    # Visualization: Bar Chart by Industry
-    # ---------------------------
-    st.subheader("🏭 Late Payments by Industry")
-    industry_late = df[df["Predicted_Status"]=="Late"]["Industry"].value_counts()
-
-    if len(industry_late) > 0:
-        fig2, ax2 = plt.subplots()
-        industry_late.plot(kind="bar", ax=ax2)
-        plt.ylabel("Count of Late Payments")
-        st.pyplot(fig2)
-    else:
-        st.info("✅ No late payments predicted for any industry.")
-
-    # ---------------------------
-    # Download Results
+    # Download results
     # ---------------------------
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button(
