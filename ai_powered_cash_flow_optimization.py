@@ -7,148 +7,82 @@ Original file is located at
     https://colab.research.google.com/drive/1FOgciSxwCvdtK1StWNsubdUg7D2eE9yD
 """
 
+import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
-
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from sklearn.linear_model import LogisticRegression
-from sklearn.cluster import KMeans
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-
-# Fix random numbers so we get the same result every time
-np.random.seed(42)
-
-# Define industries and regions
-industries = ["Manufacturing", "IT Services", "Retail", "Healthcare", "Finance"]
-regions = ["North America", "Europe", "Asia", "Middle East"]
-
-# Create 200 fake invoices
-n_customers = 200
-customer_ids = [f"CUST{str(i).zfill(4)}" for i in range(1, n_customers+1)]
-
-data = []
-
-for cust in customer_ids:
-    industry = np.random.choice(industries)
-    region = np.random.choice(regions)
-    invoice_amount = round(np.random.uniform(500, 20000), 2)
-
-    # Random invoice date
-    invoice_date = datetime(2023,1,1) + timedelta(days=np.random.randint(0, 365))
-    # Due date after 30, 45, or 60 days
-    due_date = invoice_date + timedelta(days=int(np.random.choice([30, 45, 60])))
-
-    # Payment behavior (sometimes early, sometimes late)
-    payment_delay = np.random.choice(
-        [0, 5, 10, 20, -3, -1, 30, 45],
-        p=[0.35, 0.2, 0.15, 0.1, 0.05, 0.05, 0.05, 0.05]
-    )
-    payment_date = due_date + timedelta(days=int(payment_delay))
-
-    # Calculate if late or on-time
-    days_past_due = (payment_date - due_date).days
-    payment_status = "On-Time" if days_past_due <= 0 else "Late"
-
-    data.append([
-        cust, industry, region, invoice_amount,
-        invoice_date.date(), due_date.date(),
-        payment_date.date(), days_past_due, payment_status
-    ])
-
-# Make into DataFrame
-df = pd.DataFrame(data, columns=[
-    "Customer_ID", "Industry", "Region", "Invoice_Amount",
-    "Invoice_Date", "Due_Date", "Payment_Date",
-    "Days_Past_Due", "Payment_Status"
-])
-
-df.head()
-
-# Save as CSV file
-df.to_csv("synthetic_ar_data.csv", index=False)
-
-print("✅ Dataset saved as synthetic_ar_data.csv")
-
-files.download("synthetic_ar_data.csv")
-
-print(df["Payment_Status"].value_counts())
-
-df["Payment_Status"].value_counts().plot(kind="bar", title="Payment Status Count")
-plt.show()
-
-df_ml = df.copy()
-
-# Convert dates to datetime
-df_ml["Invoice_Date"] = pd.to_datetime(df_ml["Invoice_Date"])
-df_ml["Due_Date"] = pd.to_datetime(df_ml["Due_Date"])
-df_ml["Payment_Date"] = pd.to_datetime(df_ml["Payment_Date"])
-
-# Extract new features
-df_ml["Invoice_Month"] = df_ml["Invoice_Date"].dt.month
-df_ml["Due_Month"] = df_ml["Due_Date"].dt.month
-
-# Encode categorical values
-encoder = LabelEncoder()
-df_ml["Industry"] = encoder.fit_transform(df_ml["Industry"])
-df_ml["Region"] = encoder.fit_transform(df_ml["Region"])
-
-# Convert payment status into numbers
-df_ml["Payment_Status"] = df_ml["Payment_Status"].map({"On-Time":0, "Late":1})
-
-df_ml.head()
-
-X = df_ml[["Industry","Region","Invoice_Amount","Invoice_Month","Due_Month","Days_Past_Due"]]
-y = df_ml["Payment_Status"]
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-
-print("Training data shape:", X_train.shape)
-print("Testing data shape:", X_test.shape)
-
-model = LogisticRegression()
-model.fit(X_train, y_train)
-
-y_pred = model.predict(X_test)
-
-print("Model Accuracy:", accuracy_score(y_test, y_pred))
-print("\nClassification Report:\n", classification_report(y_test, y_pred))
-print("\nConfusion Matrix:\n", confusion_matrix(y_test, y_pred))
-
-customer_summary = df.groupby("Customer_ID").agg({
-    "Invoice_Amount":"mean",
-    "Days_Past_Due":"mean"
-}).reset_index()
-
-kmeans = KMeans(n_clusters=3, random_state=42)
-customer_summary["Cluster"] = kmeans.fit_predict(customer_summary[["Invoice_Amount","Days_Past_Due"]])
-
-customer_summary.head()
-
-plt.scatter(customer_summary["Invoice_Amount"], customer_summary["Days_Past_Due"],
-            c=customer_summary["Cluster"], cmap="viridis")
-plt.xlabel("Average Invoice Amount")
-plt.ylabel("Average Days Past Due")
-plt.title("Customer Segmentation")
-plt.show()
-
-def recommend_strategy(days_past_due):
-    if days_past_due > 20:
-        return "High Risk - Send Early Reminder"
-    elif days_past_due > 5:
-        return "Medium Risk - Standard Follow-Up"
-    else:
-        return "Low Risk - Regular Cycle"
-
-customer_summary["Collection_Strategy"] = customer_summary["Days_Past_Due"].apply(recommend_strategy)
-
-customer_summary.head()
-
 import pickle
 
-with open("model.pkl", "wb") as f:
-    pickle.dump(model, f)
+# ---------------------------
+# Load the trained model
+# ---------------------------
+model = pickle.load(open("model.pkl", "rb"))
 
-files.download("model.pkl")
+st.title("💰 AI-Powered Cash Flow Optimization")
+st.write("Upload your AR dataset (CSV) and get payment predictions with collection strategies.")
+
+# ---------------------------
+# Upload CSV
+# ---------------------------
+uploaded_file = st.file_uploader("📂 Upload AR Data (CSV)", type=["csv"])
+
+if uploaded_file:
+    # Read uploaded dataset
+    df = pd.read_csv(uploaded_file)
+    st.subheader("📊 Uploaded Data Preview")
+    st.write(df.head())
+
+    # ---------------------------
+    # Select Features for Prediction
+    # ---------------------------
+    try:
+        X = df[["Industry","Region","Invoice_Amount","Invoice_Month","Due_Month","Days_Past_Due"]]
+    except:
+        st.error("❌ Uploaded CSV must contain: Industry, Region, Invoice_Amount, Invoice_Month, Due_Month, Days_Past_Due")
+        st.stop()
+
+    # ---------------------------
+    # Make Predictions
+    # ---------------------------
+    predictions = model.predict(X)
+    df["Predicted_Status"] = ["Late" if p==1 else "On-Time" for p in predictions]
+
+    # ---------------------------
+    # Add Collection Strategy
+    # ---------------------------
+    def recommend_strategy(days_past_due):
+        if days_past_due > 20:
+            return "🚨 High Risk - Send Early Reminder"
+        elif days_past_due > 5:
+            return "⚠️ Medium Risk - Standard Follow-Up"
+        else:
+            return "✅ Low Risk - Regular Cycle"
+
+    df["Collection_Strategy"] = df["Days_Past_Due"].apply(recommend_strategy)
+
+    st.subheader("✅ Predictions with Strategies")
+    st.write(df[["Customer_ID","Predicted_Status","Collection_Strategy"]])
+
+    # ---------------------------
+    # Download Results
+    # ---------------------------
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="⬇️ Download Predictions as CSV",
+        data=csv,
+        file_name="predictions.csv",
+        mime="text/csv"
+    )
+
+# ---------------------------
+# Provide Sample Synthetic Data for Testing
+# ---------------------------
+st.subheader("📥 Download Sample Dataset")
+try:
+    sample_csv = pd.read_csv("synthetic_ar_data.csv").to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="⬇️ Download Sample Synthetic AR Dataset",
+        data=sample_csv,
+        file_name="synthetic_ar_data.csv",
+        mime="text/csv"
+    )
+except Exception:
+    st.warning("⚠️ Sample dataset not found in repo. Please upload your own CSV.")
