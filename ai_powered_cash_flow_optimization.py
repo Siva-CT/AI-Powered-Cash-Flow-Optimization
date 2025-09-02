@@ -72,7 +72,6 @@ df.to_csv("synthetic_ar_data.csv", index=False)
 
 print("✅ Dataset saved as synthetic_ar_data.csv")
 
-from google.colab import files
 files.download("synthetic_ar_data.csv")
 
 print(df["Payment_Status"].value_counts())
@@ -152,5 +151,4 @@ import pickle
 with open("model.pkl", "wb") as f:
     pickle.dump(model, f)
 
-from google.colab import files
 files.download("model.pkl")
